@@ -1,0 +1,36 @@
+# ========================================
+# SEGURIDAD - NUNCA subir estos archivos
+# ========================================
+.env
+.env.local
+.env.production
+*.env
+*.pem
+*.key
+*.p12
+*.jks
+private-key.txt
+
+# ========================================
+# JAVA / MAVEN / SPRING BOOT
+# ========================================
+backend/target/
+*.class
+*.jar
+*.war
+.idea/
+*.iml
+
+# ========================================
+# REACT / NODE
+# ========================================
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+npm-debug.log*
+
+# ========================================
+# SISTEMA OPERATIVO
+# ========================================
+Thumbs.db
+desktop.ini
