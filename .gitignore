@@ -10,6 +10,11 @@
 *.p12
 *.jks
 private-key.txt
+# Configuración con credenciales
+application.properties
+application-*.properties
+application.yml
+application-*.yml
 
 # ========================================
 # JAVA / MAVEN / SPRING BOOT
