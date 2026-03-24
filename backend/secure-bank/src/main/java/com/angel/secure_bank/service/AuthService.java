@@ -36,7 +36,14 @@ public class AuthService {
                 .email(request.email())
                 .password(passwordEncoder.encode(request.password()))
                 .role(Role.USER)
+                .enabled(true)
+                .accountNonLocked(true)
+                .failedLoginAttempts(0)
                 .build();
+
+// Ahora los valores críticos de seguridad se asignan explícitamente
+// en lugar de depender de los defaults de Java o MySQL.
+// Esto evita que nuevos usuarios queden bloqueados al registrarse.
 
         userRepository.save(user);
 
