@@ -3,6 +3,7 @@ package com.angel.secure_bank.service;
 import com.angel.secure_bank.dto.AuthResponse;
 import com.angel.secure_bank.dto.LoginRequest;
 import com.angel.secure_bank.dto.RegisterRequest;
+import com.angel.secure_bank.model.AuditSeverity;
 import com.angel.secure_bank.model.Role;
 import com.angel.secure_bank.model.User;
 import com.angel.secure_bank.repository.UserRepository;
@@ -24,6 +25,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final UserDetailsService userDetailsService;
+    private final AuditService auditService;
 
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
@@ -41,11 +43,15 @@ public class AuthService {
                 .failedLoginAttempts(0)
                 .build();
 
-// Ahora los valores críticos de seguridad se asignan explícitamente
-// en lugar de depender de los defaults de Java o MySQL.
-// Esto evita que nuevos usuarios queden bloqueados al registrarse.
-
         userRepository.save(user);
+
+        // registramos el evento de registro nuevo
+        auditService.log(
+                "USER_REGISTERED",
+                "New user registered: " + user.getEmail(),
+                user, null, null,
+                AuditSeverity.INFO
+        );
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
         String token = jwtService.generateToken(userDetails);
@@ -53,25 +59,42 @@ public class AuthService {
         return new AuthResponse(token, 86400, user.getRole().name());
     }
 
-    public AuthResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.email(), request.password())
-        );
+    public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.email(), request.password())
+            );
+        } catch (Exception ex) {
+            // login fallido, lo registramos como advertencia
+            userRepository.findByEmail(request.email()).ifPresent(user ->
+                    auditService.log(
+                            "LOGIN_FAILED",
+                            "Failed login attempt for: " + request.email(),
+                            user, ipAddress, userAgent,
+                            AuditSeverity.WARNING
+                    )
+            );
+            throw ex;
+        }
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(request.email());
         String token = jwtService.generateToken(userDetails);
 
         User user = userRepository.findByEmail(request.email()).orElseThrow();
 
+        // login exitoso
+        auditService.log(
+                "LOGIN_SUCCESS",
+                "User logged in: " + user.getEmail(),
+                user, ipAddress, userAgent,
+                AuditSeverity.INFO
+        );
+
         return new AuthResponse(token, 86400, user.getRole().name());
     }
 }
 
-// Servicio que maneja registro y login.
-// En registro verificamos primero si el email ya existe para dar un mensaje claro,
-// luego hasheamos la contraseña con BCrypt antes de guardarla,
-// nunca guardamos contraseñas en texto plano.
-// En login delegamos la verificación de credenciales al AuthenticationManager
-// que internamente usa BCrypt para comparar el hash almacenado con lo que llegó.
-// Si las credenciales son incorrectas, AuthenticationManager lanza una excepción
-// automáticamente y Spring Security devuelve 401 sin que tengamos que manejarlo.
+// Ahora cada login exitoso, fallido y registro queda guardado en audit_logs.
+// El login fallido es WARNING porque puede indicar un ataque de fuerza bruta.
+// Pasamos ipAddress y userAgent desde el controlador para saber
+// desde dónde vino cada intento.rity devuelve 401 sin que tengamos que manejarlo.
