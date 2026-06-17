@@ -15,6 +15,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.security.authentication.BadCredentialsException;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -60,29 +62,37 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
+        User user = userRepository.findByEmail(request.email())
+                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
+
+        // si la cuenta está bloqueada y ya pasó el tiempo, la desbloqueamos antes de seguir
+        if (!user.isAccountNonLocked() && user.getLockedUntil() != null) {
+            if (LocalDateTime.now().isAfter(user.getLockedUntil())) {
+                user.setAccountNonLocked(true);
+                user.setFailedLoginAttempts(0);
+                user.setLockedUntil(null);
+                userRepository.save(user);
+            }
+        }
+
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.email(), request.password())
             );
         } catch (Exception ex) {
-            // login fallido, lo registramos como advertencia
-            userRepository.findByEmail(request.email()).ifPresent(user ->
-                    auditService.log(
-                            "LOGIN_FAILED",
-                            "Failed login attempt for: " + request.email(),
-                            user, ipAddress, userAgent,
-                            AuditSeverity.WARNING
-                    )
-            );
+            handleFailedLogin(user, ipAddress, userAgent);
             throw ex;
+        }
+
+        // login exitoso, resetea el contador si tenía intentos previos
+        if (user.getFailedLoginAttempts() > 0) {
+            user.setFailedLoginAttempts(0);
+            userRepository.save(user);
         }
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(request.email());
         String token = jwtService.generateToken(userDetails);
 
-        User user = userRepository.findByEmail(request.email()).orElseThrow();
-
-        // login exitoso
         auditService.log(
                 "LOGIN_SUCCESS",
                 "User logged in: " + user.getEmail(),
@@ -91,6 +101,32 @@ public class AuthService {
         );
 
         return new AuthResponse(token, 86400, user.getRole().name());
+    }
+
+    private void handleFailedLogin(User user, String ipAddress, String userAgent) {
+        int attempts = user.getFailedLoginAttempts() + 1;
+        user.setFailedLoginAttempts(attempts);
+
+        if (attempts >= 5) {
+            user.setAccountNonLocked(false);
+            user.setLockedUntil(LocalDateTime.now().plusMinutes(15));
+
+            auditService.log(
+                    "ACCOUNT_LOCKED",
+                    "Account locked after 5 failed attempts: " + user.getEmail(),
+                    user, ipAddress, userAgent,
+                    AuditSeverity.CRITICAL
+            );
+        } else {
+            auditService.log(
+                    "LOGIN_FAILED",
+                    "Failed login attempt " + attempts + "/5 for: " + user.getEmail(),
+                    user, ipAddress, userAgent,
+                    AuditSeverity.WARNING
+            );
+        }
+
+        userRepository.save(user);
     }
 }
 
