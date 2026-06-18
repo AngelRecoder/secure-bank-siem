@@ -22,6 +22,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         com.angel.secure_bank.model.User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
+
         return new User(
                 user.getEmail(),
                 user.getPassword(),

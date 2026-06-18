@@ -65,7 +65,7 @@ public class AuthService {
         User user = userRepository.findByEmail(request.email())
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
-        // si la cuenta está bloqueada y ya pasó el tiempo, la desbloqueamos antes de seguir
+
         if (!user.isAccountNonLocked() && user.getLockedUntil() != null) {
             if (LocalDateTime.now().isAfter(user.getLockedUntil())) {
                 user.setAccountNonLocked(true);
