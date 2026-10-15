@@ -3,6 +3,7 @@ package com.angel.secure_bank.controller;
 import com.angel.secure_bank.dto.TransferRequest;
 import com.angel.secure_bank.dto.TransferResponse;
 import com.angel.secure_bank.service.TransactionService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -22,9 +23,14 @@ public class TransactionController {
     @PostMapping("/transfer")
     public ResponseEntity<TransferResponse> transfer(
             @AuthenticationPrincipal UserDetails userDetails,
-            @Valid @RequestBody TransferRequest request) {
+            @Valid @RequestBody TransferRequest request,
+            HttpServletRequest httpRequest) {
+
+        String ipAddress = httpRequest.getRemoteAddr();
+        String userAgent = httpRequest.getHeader("User-Agent");
+
         return ResponseEntity.ok(
-                transactionService.transfer(userDetails.getUsername(), request)
+                transactionService.transfer(userDetails.getUsername(), request, ipAddress, userAgent)
         );
     }
 
@@ -36,7 +42,3 @@ public class TransactionController {
         );
     }
 }
-
-// Dos endpoints: uno para transferir y otro para ver el historial.
-// En ambos casos el email del usuario autenticado viene del token,
-// no de parámetros que el usuario pueda manipular.

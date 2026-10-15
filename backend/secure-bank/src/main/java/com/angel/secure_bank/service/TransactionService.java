@@ -2,6 +2,7 @@ package com.angel.secure_bank.service;
 
 import com.angel.secure_bank.dto.TransferRequest;
 import com.angel.secure_bank.dto.TransferResponse;
+import com.angel.secure_bank.model.AuditSeverity;
 import com.angel.secure_bank.model.Transaction;
 import com.angel.secure_bank.model.TransactionStatus;
 import com.angel.secure_bank.model.User;
@@ -20,20 +21,35 @@ public class TransactionService {
 
     private final UserRepository userRepository;
     private final TransactionRepository transactionRepository;
+    private final AuditService auditService;
 
     @Transactional
-    public TransferResponse transfer(String senderEmail, TransferRequest request) {
-        if (senderEmail.equals(request.recipientEmail())) {
-            throw new IllegalArgumentException("You cannot transfer money to yourself");
-        }
+    public TransferResponse transfer(String senderEmail, TransferRequest request,
+                                     String ipAddress, String userAgent) {
 
         User sender = userRepository.findByEmail(senderEmail)
                 .orElseThrow(() -> new UsernameNotFoundException("Sender not found"));
+
+        if (senderEmail.equals(request.recipientEmail())) {
+            auditService.log(
+                    "TRANSFER_FAILED",
+                    "User tried to transfer money to their own account: " + senderEmail,
+                    sender, ipAddress, userAgent,
+                    AuditSeverity.WARNING
+            );
+            throw new IllegalArgumentException("You cannot transfer money to yourself");
+        }
 
         User recipient = userRepository.findByEmail(request.recipientEmail())
                 .orElseThrow(() -> new IllegalArgumentException("Recipient not found"));
 
         if (sender.getBalance().compareTo(request.amount()) < 0) {
+            auditService.log(
+                    "TRANSFER_FAILED",
+                    "Insufficient balance for transfer attempt by: " + senderEmail,
+                    sender, ipAddress, userAgent,
+                    AuditSeverity.WARNING
+            );
             throw new IllegalArgumentException("Insufficient balance");
         }
 
@@ -52,6 +68,15 @@ public class TransactionService {
                 .build();
 
         Transaction saved = transactionRepository.save(transaction);
+
+        // este lo marcamos como WARNING en vez de INFO porque mueve dinero real
+        // y queremos que sea facil de filtrar en el dashboard despues
+        auditService.log(
+                "TRANSFER_COMPLETED",
+                "Transfer of " + request.amount() + " from " + senderEmail + " to " + request.recipientEmail(),
+                sender, ipAddress, userAgent,
+                AuditSeverity.WARNING
+        );
 
         return new TransferResponse(
                 saved.getId(),
@@ -81,9 +106,3 @@ public class TransactionService {
                 .toList();
     }
 }
-
-// @Transactional es importante aquí, si algo falla a mitad de la transferencia
-// (por ejemplo se descuenta del sender pero falla al acreditar al recipient)
-// la base de datos revierte todo automáticamente y nadie pierde dinero.
-// El senderEmail viene del token JWT, no del body de la petición,
-// así un usuario no puede hacer transferencias haciéndose pasar por otro.
